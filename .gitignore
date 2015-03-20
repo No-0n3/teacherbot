@@ -52,3 +52,11 @@ docs/_build/
 
 # PyBuilder
 target/
+
+# Project files
+*.nja
+
+# Config files that aren't example
+config.json
+twisted/
+*~

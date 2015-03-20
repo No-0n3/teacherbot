@@ -1,0 +1,16 @@
+{
+  "network": {
+    "port": 6667,
+    "password": "",
+    "server": "",
+  },
+  "database": "mongodb://example.com:27017/",
+  "identity": {
+    "realname": "",
+    "nickname": "",
+    "username": ""
+  },
+  "general": {
+    "linerate": 2
+  }
+}
