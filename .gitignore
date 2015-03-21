@@ -58,5 +58,5 @@ target/
 
 # Config files that aren't example
 config.json
-twisted/
 *~
+dropin.cache

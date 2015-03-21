@@ -5,6 +5,7 @@ from twisted.words.protocols import irc
 from twisted.internet import threads
 from twisted.python import log
 from pymongo.errors import DuplicateKeyError
+from badwords import Badwords
 
 
 # Decorator to check so the user has permission to use the function.
@@ -37,6 +38,7 @@ class Bot(irc.IRCClient):
     password = ""
     username = ""
     realname = ""
+    engine = None
 
     def connectionMade(self):
         """Is run when the connection is successful."""
@@ -55,7 +57,7 @@ class Bot(irc.IRCClient):
     # callbacks for events
     def signedOn(self):
         """Called when bot has succesfully signed on to server."""
-        pass
+        self.engine = Badwords(self.factory.db)
 
     def kickedFrom(self, channel, kicker, message):
         """Called when I am kicked from a channel."""
@@ -71,8 +73,19 @@ class Bot(irc.IRCClient):
         """Called when a notice is recieved."""
         log.msg("From %s/%s: %s" % (user, channel, msg))
 
+    def badword(self, result, user, channel):
+        """Is called when a search of the text engine is done."""
+        if result:
+            self.msg("ChanServ", "KICK %s %s Watch your language!"
+                % (channel, user))
+            log.msg("Kicked out %s from %s for bad language." % (user, channel))
+
     def privmsg(self, user, channel, msg):
         """This will get called when the bot receives a message."""
+
+        if channel.startswith("#"):
+            d = threads.deferToThread(self.engine.check, channel, msg)
+            d.addCallback(self.badword, user.split('!', 1)[0], channel)
 
         if msg.startswith("@"):
             cmd = msg.split()[0].strip("@")
@@ -143,10 +156,10 @@ class Bot(irc.IRCClient):
         self.factory.stop = True
 
     @has_permission("admin")
-    def cmd_msg(self, user, src_chan, dest, message):
+    def cmd_msg(self, user, src_chan, dest, *message):
         """Tell the bot to send a message. @msg <user> <message>"""
         if dest and message:
-            self.msg(dest, message)
+            self.msg(dest, ' '.join(message))
 
     def cmd_auth(self, user, src_chan, username, password):
         """Authenticate with the bot. @auth <username> <password>"""
@@ -236,3 +249,59 @@ class Bot(irc.IRCClient):
             self.notice(user.split('!', 1)[0], "User have now been deopped!")
         else:
             self.notice(user.split('!', 1)[0], "User not registered!")
+
+    @has_permission("admin")
+    def cmd_admin(self, user, src_chan, username):
+        """Escalate privileges to admin level for a user. @admin <username>"""
+        coll = self.factory.db.users
+
+        user_doc = coll.find_one({"username": username})
+
+        if user_doc is not None:
+            user_doc['role']['admin'] = True
+            coll.save(user_doc)
+            self.notice(user.split('!', 1)[0], "User have now been admined!")
+        else:
+            self.notice(user.split('!', 1)[0], "User not registered!")
+
+    @has_permission("admin")
+    def cmd_deadmin(self, user, src_chan, username):
+        """Remove admin privilege from a user. @deadmin <username>"""
+        coll = self.factory.db.users
+
+        user_doc = coll.find_one({"username": username})
+
+        if user_doc is not None:
+            user_doc['role']['admin'] = False
+            coll.save(user_doc)
+            self.notice(user.split('!', 1)[0], "User have now been deadmined!")
+        else:
+            self.notice(user.split('!', 1)[0], "User not registered!")
+
+    @has_permission("owner")
+    def cmd_owner(self, user, src_chan, username):
+        """Remove admin privilege from a user. @deadmin <username>"""
+        coll = self.factory.db.users
+
+        user_doc = coll.find_one({"username": username})
+
+        if user_doc is not None:
+            user_doc['role']['owner'] = True
+            user_doc['role']['admin'] = True
+            user_doc['role']['op'] = True
+            user_doc['role']['user'] = True
+            coll.save(user_doc)
+            self.notice(user.split('!', 1)[0], "User now has all privileges.")
+        else:
+            self.notice(user.split('!', 1)[0], "User not registered!")
+
+    def cmd_addword(self, user, src_chan, word, channel):
+        """Blacklist a word by regexp. @addword <word> <channel>"""
+
+        try:
+            self.engine.add(word, channel)
+        except Exception as exc:
+            log.err(exc)
+            self.notice(user.split('!', 1)[0], "An error ocurred")
+        else:
+            self.notice(user.split('!', 1)[0], "Added word %s" % word)
