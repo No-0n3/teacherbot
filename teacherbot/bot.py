@@ -198,22 +198,6 @@ class Bot(irc.IRCClient):
         if channel:
             self.part(channel)
 
-    @has_permission("user")
-    def cmd_help(self, user, src_chan, cmd=None):
-        """Lists help about commands. @help [<cmd>]"""
-        user = user.split('!', 1)[0]
-
-        if cmd is None:
-            self.notice(user, "Commands:")
-
-            for func in dir(self):
-                if func.startswith("cmd_"):
-                    self.notice(user, "@" + func[4:] + " - " +
-                                getattr(self, func).__doc__)
-        else:
-            func = getattr(self, "cmd_" + cmd)
-            self.notice(user, "@" + func.__name__[4:] + " - " + func.__doc__)
-
     @has_permission("owner")
     def cmd_quit(self, user, src_chan, *args):
         """Shutdown the bot."""
@@ -444,42 +428,6 @@ class Bot(irc.IRCClient):
 
         if channel is None:
             self.notice(user.split('!', 1)[0], "No channel specified!")
-
-        if option == "help":
-            self.notice(user.split('!', 1)[0],
-                "kicker - Allows the bot to kick. Default: off")
-            self.notice(user.split('!', 1)[0],
-                "ban - Allows the bot to give a timed ban. Default: off")
-            self.notice(user.split('!', 1)[0],
-                "private - Warns a user by sending a notice when 'on' else "
-                "it sends a message to the channel. Default: on")
-            self.notice(user.split('!', 1)[0],
-                "ttb - Enables a timed ban on a user after X kicks. Default: 3")
-            self.notice(user.split('!', 1)[0],
-                "bantime - Minimum number of seconds a user is banned. "
-                "The bantime is automaticily escalated by the equotion "
-                "'kick' * 'bantime', if set to 60 and ttb is 3, the "
-                "total bantime will be 3 minutes. Default: 60")
-            self.notice(user.split('!', 1)[0],
-                "cmd_kick - Command format that will be used when sending "
-                "kick command to ChanServ. See the syntax for the command and"
-                " replace the parts for 'nick/mask', 'reason' and 'channel'"
-                " with the formatters {user}, {reason}, {channel}")
-            self.notice(user.split('!', 1)[0],
-                "cmd_atb - Command format that will be used when sending "
-                "timed ban command to ChanServ. See the syntax for the "
-                "command and replace the parts for 'nick/mask', 'reason', "
-                "'bantime' and 'channel' with the formatters {user}, {reason},"
-                " {channel}, {bantime}")
-            self.notice(user.split('!', 1)[0],
-                "ban_reason - Sets the reason to use when banning. "
-                "The formatter '{bantime} can be used in the message.'")
-            self.notice(user.split('!', 1)[0],
-                "kick_reason - Sets the reason to use when kicking.")
-            self.notice(user.split('!', 1)[0],
-                "chanserv - Sets the nickname of the ChanServ service. "
-                "Default: ChanServ")
-            return
 
         coll = self.factory.db.chan_settings
         cs = coll.find_one({"channel": channel})
