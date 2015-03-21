@@ -24,11 +24,16 @@ def has_permission(role, channel=None):
 
             if user_doc is not None and user_doc['role'][role]:
                 if channel is not None:
-                    if args[channel] in user_doc['channels'] \
-                        or user_doc["all"]:
-                        func(self, user, src_chan, *args, **kwargs)
+                    if len(args) > channel:
+                        if args[channel] in user_doc['channels'] \
+                            or user_doc["all"]:
+                            func(self, user, src_chan, *args, **kwargs)
+                        else:
+                            self.notice(user.split('!', 1)[0],
+                                "Permission denied!")
                     else:
-                        self.notice(user.split('!', 1)[0], "Permission denied!")
+                        self.notice(user.split('!', 1)[0],
+                                "No channel given.")
                 else:
                     func(self, user, src_chan, *args, **kwargs)
             else:
@@ -423,7 +428,7 @@ class Bot(irc.IRCClient):
             self.notice(user.split('!', 1)[0], "User not registered!")
 
     @has_permission("op", 1)
-    def cmd_set(self, user, src_chan, option, channel="", *value):
+    def cmd_set(self, user, src_chan, option, channel=None, *value):
         """Set an option for a channel. @set <option> <channel> <value>"""
 
         if channel is None:
