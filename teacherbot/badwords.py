@@ -27,8 +27,15 @@ class Badwords(object):
         cursor = self._coll.find({"channel": channel})
 
         for row in cursor:
-            if re.search(row['word'], msg, re.I):
+            if re.search(row['word'].encode('utf8'), msg, re.I | re.U):
                 found = True
                 break
 
         return found
+
+    def show(self, channel):
+        """List all the words"""
+        words = list(self._coll.find({"channel": channel},
+            {"_id": False, "channel": False}))
+
+        return words

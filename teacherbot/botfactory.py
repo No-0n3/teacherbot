@@ -26,7 +26,8 @@ class BotFactory(protocol.ReconnectingClientFactory):
         self.realname = config['network'].get('realname',
             config["identity"]["nickname"]).encode('utf8')
         self.linerate = config['general']['linerate']
-        self.config = config
+        self.ns_user = config['nickserv']['username'].encode('utf8')
+        self.ns_pw = config['nickserv']['password'].encode('utf8')
         self.stop = False
         self.dbclient = MongoClient(config["database"])
         self.db = self.dbclient.chat_bot
@@ -36,6 +37,8 @@ class BotFactory(protocol.ReconnectingClientFactory):
             ("password", pymongo.ASCENDING),
             ("role", pymongo.ASCENDING),
             ("nick", pymongo.ASCENDING)])
+        self.db.chat_bot.kicklist.ensure_index("hostmask", unique=True)
+        self.db.chat_bot.chan_settings.ensure_index("channel", unique=True)
 
     def clientConnectionLost(self, connector, reason):
         """If we get disconnected, reconnect to server."""

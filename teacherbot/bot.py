@@ -9,7 +9,7 @@ from badwords import Badwords
 
 
 # Decorator to check so the user has permission to use the function.
-def has_permission(role):
+def has_permission(role, channel=None):
     """Decorator that checks so user has correct permissions."""
 
     def permission_decorator(func):
@@ -23,7 +23,14 @@ def has_permission(role):
             user_doc = coll.find_one({"hostmask": user.split('!', 1)[1]})
 
             if user_doc is not None and user_doc['role'][role]:
-                func(self, user, src_chan, *args, **kwargs)
+                if channel is not None:
+                    if args[channel] in user_doc['channels'] \
+                        or user_doc["all"]:
+                        func(self, user, src_chan, *args, **kwargs)
+                    else:
+                        self.notice(user.split('!', 1)[0], "Permission denied!")
+                else:
+                    func(self, user, src_chan, *args, **kwargs)
             else:
                 self.notice(user.split('!', 1)[0], "Perrmission denied!")
 
@@ -58,6 +65,7 @@ class Bot(irc.IRCClient):
     def signedOn(self):
         """Called when bot has succesfully signed on to server."""
         self.engine = Badwords(self.factory.db)
+        self.msg(self.factory.ns_user, "identify %s" % self.factory.ns_pw)
 
     def kickedFrom(self, channel, kicker, message):
         """Called when I am kicked from a channel."""
@@ -73,19 +81,51 @@ class Bot(irc.IRCClient):
         """Called when a notice is recieved."""
         log.msg("From %s/%s: %s" % (user, channel, msg))
 
+    # A callback that gets a result after checking a word and kicks a user by
+    # sending a command to ChanServ with a reason.
     def badword(self, result, user, channel):
         """Is called when a search of the text engine is done."""
         if result:
-            self.msg("ChanServ", "KICK %s %s Watch your language!"
-                % (channel, user))
-            log.msg("Kicked out %s from %s for bad language." % (user, channel))
+            kicklist = self.factory.db.kicklist
+            record = kicklist.find_one({"hostmask": user.split('!', 1)[1]})
+            cs = self.factory.db.chan_settings.find_one({"channel": channel})
+
+            if record:
+                record["kicks"] += 1
+            else:
+                record = {
+                    "hostmask": user.split('!', 1)[1],
+                    "kicks": 0
+                    }
+
+            kicklist.save(record)
+
+            if cs['kicker'] and record["kicks"] > 0:
+                if record["kicks"] % (cs['ttb'] + 1) == 0 and cs["ban"]:
+                    self.msg(cs['chanserv'].encode('utf8'),
+                        cs['cmd_atb'].encode('utf8').format(
+                            channel=channel,
+                            user=user.split('!', 1)[0],
+                            bantime=cs['bantime'] * (record['kicks'] - 1),
+                            reason=cs['ban_reason'].encode('utf8').format(
+                                bantime=cs['bantime'] * (record['kicks'] - 1))
+                            ))
+                else:
+                    self.msg(cs['chanserv'].encode('utf8'),
+                        cs['cmd_kick'].encode('utf8').format(
+                            channel=channel,
+                            user=user.split('!', 1)[0],
+                            reason=cs['kick_reason'].encode('utf8')
+                            ))
+            else:
+                if cs['private']:
+                    self.notice(user.split('!', 1)[0], "Watch your language!")
+                else:
+                    self.msg(channel, "Watch your language %s!"
+                        % user.split('!', 1)[0])
 
     def privmsg(self, user, channel, msg):
         """This will get called when the bot receives a message."""
-
-        if channel.startswith("#"):
-            d = threads.deferToThread(self.engine.check, channel, msg)
-            d.addCallback(self.badword, user.split('!', 1)[0], channel)
 
         if msg.startswith("@"):
             cmd = msg.split()[0].strip("@")
@@ -98,6 +138,11 @@ class Bot(irc.IRCClient):
                     channel, *args)
             else:
                 self.notice(user.split('!', 1)[0], "Unknown command!")
+        else:
+            if channel.startswith("#"):
+                # Run defer in thread so it doesn't block if many results in db.
+                d = threads.deferToThread(self.engine.check, channel, msg)
+                d.addCallback(self.badword, user, channel)
 
     def userQuit(self, user, quitMessage):
         """Called when a user leaves the network"""
@@ -121,13 +166,33 @@ class Bot(irc.IRCClient):
             log.msg("User {} changed nick to {}".format(oldname, newname))
 
     # User-defined commands
-    @has_permission("op")
+    @has_permission("op", 0)
     def cmd_join(self, user, src_chan, channel, password=None):
         """Join a channel. @join <channel> [<password>]"""
         if channel:
+            coll = self.factory.db.chan_settings
+            cs = coll.find_one({"channel": channel})
+
+            if cs is None:
+                cs = {
+                    "channel": channel,
+                    "ttb": 3,
+                    "kicker": False,
+                    "ban": False,
+                    "private": True,
+                    "bantime": 60,
+                    "cmd_atb": "",
+                    "cmd_kick": "",
+                    "chanserv": "ChanServ",
+                    "kick_reason": "Watch you language!",
+                    "ban_reason": "Watch your language!"
+                    }
+
+                coll.save(cs)
+
             self.join(channel, password)
 
-    @has_permission("op")
+    @has_permission("op", 0)
     def cmd_part(self, user, src_chan, channel, password=None):
         """Leave a channel. @part <channel>"""
         if channel:
@@ -149,7 +214,7 @@ class Bot(irc.IRCClient):
             func = getattr(self, "cmd_" + cmd)
             self.notice(user, "@" + func.__name__[4:] + " - " + func.__doc__)
 
-    @has_permission("admin")
+    @has_permission("owner")
     def cmd_quit(self, user, src_chan, *args):
         """Shutdown the bot."""
         self.quit(message="Shutting down.")
@@ -189,7 +254,9 @@ class Bot(irc.IRCClient):
             "password": m.hexdigest(),
             "hostmask": user.split('!', 1)[1],
             "role": {"user": True, "admin": False, "op": False, "owner": False},
-            "nick": user.split('!', 1)[0]
+            "nick": user.split('!', 1)[0],
+            "channels": {},
+            "all": False
             }
 
         coll = self.factory.db.users
@@ -222,57 +289,73 @@ class Bot(irc.IRCClient):
             self.notice(user.split('!', 1)[0],
                 "Your nickname could not be removed!")
 
-    @has_permission("admin")
-    def cmd_op(self, user, src_chan, username):
+    @has_permission("admin", 1)
+    def cmd_op(self, user, src_chan, username, channel):
         """Escalate privileges to operator level for a user. @op <username>"""
         coll = self.factory.db.users
 
         user_doc = coll.find_one({"username": username})
 
         if user_doc is not None:
+            user_doc['role']['user'] = True
             user_doc['role']['op'] = True
+            user_doc['role']['admin'] = False
+            user_doc['role']['owner'] = False
+            user_doc['channels'][channel] = None
             coll.save(user_doc)
             self.notice(user.split('!', 1)[0], "User have now been opped!")
         else:
             self.notice(user.split('!', 1)[0], "User not registered!")
 
-    @has_permission("admin")
-    def cmd_deop(self, user, src_chan, username):
-        """Remove operator privilege from a user. @deop <username>"""
+    @has_permission("admin", 1)
+    def cmd_deop(self, user, src_chan, username, channel):
+        """Remove operator privilege from a user. @deop <username> <channel>"""
         coll = self.factory.db.users
 
         user_doc = coll.find_one({"username": username})
 
         if user_doc is not None:
+            user_doc['role']['user'] = True
             user_doc['role']['op'] = False
+            user_doc['role']['admin'] = False
+            user_doc['role']['owner'] = False
+            del user_doc['channels'][channel]
             coll.save(user_doc)
             self.notice(user.split('!', 1)[0], "User have now been deopped!")
         else:
             self.notice(user.split('!', 1)[0], "User not registered!")
 
-    @has_permission("admin")
-    def cmd_admin(self, user, src_chan, username):
+    @has_permission("admin", 1)
+    def cmd_admin(self, user, src_chan, username, channel):
         """Escalate privileges to admin level for a user. @admin <username>"""
         coll = self.factory.db.users
 
         user_doc = coll.find_one({"username": username})
 
         if user_doc is not None:
+            user_doc['role']['user'] = True
+            user_doc['role']['op'] = True
             user_doc['role']['admin'] = True
+            user_doc['role']['owner'] = False
+            user_doc['channels'][channel] = None
             coll.save(user_doc)
             self.notice(user.split('!', 1)[0], "User have now been admined!")
         else:
             self.notice(user.split('!', 1)[0], "User not registered!")
 
-    @has_permission("admin")
-    def cmd_deadmin(self, user, src_chan, username):
-        """Remove admin privilege from a user. @deadmin <username>"""
+    @has_permission("admin", 1)
+    def cmd_deadmin(self, user, src_chan, username, channel):
+        """Remove admin privilege from a user. @deadmin <username> <channel>"""
         coll = self.factory.db.users
 
         user_doc = coll.find_one({"username": username})
 
         if user_doc is not None:
+            user_doc['role']['user'] = True
+            user_doc['role']['op'] = False
             user_doc['role']['admin'] = False
+            user_doc['role']['owner'] = False
+            del user_doc['channels'][channel]
             coll.save(user_doc)
             self.notice(user.split('!', 1)[0], "User have now been deadmined!")
         else:
@@ -290,11 +373,13 @@ class Bot(irc.IRCClient):
             user_doc['role']['admin'] = True
             user_doc['role']['op'] = True
             user_doc['role']['user'] = True
+            user_doc["all"] = True
             coll.save(user_doc)
             self.notice(user.split('!', 1)[0], "User now has all privileges.")
         else:
             self.notice(user.split('!', 1)[0], "User not registered!")
 
+    @has_permission("op", 1)
     def cmd_addword(self, user, src_chan, word, channel):
         """Blacklist a word by regexp. @addword <word> <channel>"""
 
@@ -305,3 +390,140 @@ class Bot(irc.IRCClient):
             self.notice(user.split('!', 1)[0], "An error ocurred")
         else:
             self.notice(user.split('!', 1)[0], "Added word %s" % word)
+
+    @has_permission("op", 1)
+    def cmd_delword(self, user, src_chan, word, channel):
+        """Delete a word from a blacklist. @delword <word> <channel>"""
+
+        try:
+            self.engine.delete(word, channel)
+        except Exception as exc:
+            log.err(exc)
+            self.notice(user.split('!', 1)[0], "An error ocurred")
+        else:
+            self.notice(user.split('!', 1)[0], "Deleted word %s" % word)
+
+    @has_permission("op", 0)
+    def cmd_showwords(self, user, src_chan, channel):
+        """Show all blacklisted words for a channel. @showwords <channel>"""
+
+        try:
+            words = self.engine.show(channel)
+        except Exception as exc:
+            log.err(exc)
+            self.notice(user.split('!', 1)[0], "An error ocurred")
+        else:
+            if len(words) > 0:
+                self.notice(user.split('!', 1)[0],
+                    "Blacklisted words for %s:" % channel)
+
+                for word in words:
+                    self.notice(user.split('!', 1)[0],
+                        word['word'].encode("utf8"))
+            else:
+                self.notice(user.split('!', 1)[0],
+                    "No blacklisted words for %s." % channel)
+
+    @has_permission("owner")
+    def cmd_allchan(self, user, src_chan, username):
+        """Allow a user to change lists in all channels. @allchan <username>"""
+
+        coll = self.factory.db.users
+        user_doc = coll.find_one({"username": username})
+
+        if user_doc is not None:
+            user_doc["all"] = True
+            coll.save(user_doc)
+            self.notice(user.split('!', 1)[0], "Granted user all permission")
+        else:
+            self.notice(user.split('!', 1)[0], "User not registered!")
+
+    @has_permission("op", 1)
+    def cmd_set(self, user, src_chan, option, channel="", *value):
+        """Set an option for a channel. @set <option> <channel> <value>"""
+
+        if channel is None:
+            self.notice(user.split('!', 1)[0], "No channel specified!")
+
+        if option == "help":
+            self.notice(user.split('!', 1)[0],
+                "kicker - Allows the bot to kick. Default: off")
+            self.notice(user.split('!', 1)[0],
+                "ban - Allows the bot to give a timed ban. Default: off")
+            self.notice(user.split('!', 1)[0],
+                "private - Warns a user by sending a notice when 'on' else "
+                "it sends a message to the channel. Default: on")
+            self.notice(user.split('!', 1)[0],
+                "ttb - Enables a timed ban on a user after X kicks. Default: 3")
+            self.notice(user.split('!', 1)[0],
+                "bantime - Minimum number of seconds a user is banned. "
+                "The bantime is automaticily escalated by the equotion "
+                "'kick' * 'bantime', if set to 60 and ttb is 3, the "
+                "total bantime will be 3 minutes. Default: 60")
+            self.notice(user.split('!', 1)[0],
+                "cmd_kick - Command format that will be used when sending "
+                "kick command to ChanServ. See the syntax for the command and"
+                " replace the parts for 'nick/mask', 'reason' and 'channel'"
+                " with the formatters {user}, {reason}, {channel}")
+            self.notice(user.split('!', 1)[0],
+                "cmd_atb - Command format that will be used when sending "
+                "timed ban command to ChanServ. See the syntax for the "
+                "command and replace the parts for 'nick/mask', 'reason', "
+                "'bantime' and 'channel' with the formatters {user}, {reason},"
+                " {channel}, {bantime}")
+            self.notice(user.split('!', 1)[0],
+                "ban_reason - Sets the reason to use when banning. "
+                "The formatter '{bantime} can be used in the message.'")
+            self.notice(user.split('!', 1)[0],
+                "kick_reason - Sets the reason to use when kicking.")
+            self.notice(user.split('!', 1)[0],
+                "chanserv - Sets the nickname of the ChanServ service. "
+                "Default: ChanServ")
+            return
+
+        coll = self.factory.db.chan_settings
+        cs = coll.find_one({"channel": channel})
+
+        if cs is not None:
+            if option == "list":
+                self.notice(user.split('!', 1)[0], "Channel settings:")
+
+                for setting in cs:
+                    if setting == "_id":
+                        continue
+
+                    self.notice(user.split('!', 1)[0], "{}: {}".format(setting,
+                        cs[setting]))
+
+            elif option in ("kicker", "ban", "private"):
+                if value[0] == "on":
+                    cs[option] = True
+                elif value[0] == "off":
+                    cs[option] = False
+                else:
+                    self.notice(user.split('!', 1)[0],
+                        "Invalid argument! Must be 'on' or 'off'.")
+                    return
+
+                coll.save(cs)
+            elif option in ("ttb", "bantime"):
+                try:
+                    cs[option] = int(*value)
+                except TypeError:
+                    self.notice(user.split('!', 1)[0],
+                        "Invalid argument! Must be an integer.")
+                else:
+                    coll.save(cs)
+            elif option == "channel":
+                self.notice(user.split('!', 1)[0],
+                        "Channel cannot be changed!")
+                return
+            elif option in ("cmd_atb", "cmd_kick", "ban_reason",
+                "kick_reason", "chanserv"):
+                cs[option] = ' '.join(value)
+                coll.save(cs)
+            else:
+                self.notice(user.split('!', 1)[0], "Invalid option!")
+        else:
+            self.notice(user.split('!', 1)[0],
+                "Channel does not exist in my records.")
