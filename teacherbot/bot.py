@@ -70,7 +70,6 @@ class Bot(irc.IRCClient):
     def signedOn(self):
         """Called when bot has succesfully signed on to server."""
         self.engine = Badwords(self.factory.db)
-        self.msg(self.factory.ns_user, "identify %s" % self.factory.ns_pw)
 
     def kickedFrom(self, channel, kicker, message):
         """Called when I am kicked from a channel."""
@@ -95,39 +94,48 @@ class Bot(irc.IRCClient):
             record = kicklist.find_one({"hostmask": user.split('!', 1)[1]})
             cs = self.factory.db.chan_settings.find_one({"channel": channel})
 
-            if record:
-                record["kicks"] += 1
-            else:
+            if record is None:
                 record = {
                     "hostmask": user.split('!', 1)[1],
-                    "kicks": 0
+                    "warns": 0,
+                    "kicks": 0,
                     }
 
-            kicklist.save(record)
+                kicklist.save(record)
 
-            if cs['kicker'] and record["kicks"] > 0:
-                if record["kicks"] % (cs['ttb'] + 1) == 0 and cs["ban"]:
-                    self.msg(cs['chanserv'].encode('utf8'),
-                        cs['cmd_atb'].encode('utf8').format(
-                            channel=channel,
-                            user=user.split('!', 1)[0],
-                            bantime=cs['bantime'] * (record['kicks'] - 1),
-                            reason=cs['ban_reason'].encode('utf8').format(
-                                bantime=cs['bantime'] * (record['kicks'] - 1))
-                            ))
-                else:
-                    self.msg(cs['chanserv'].encode('utf8'),
-                        cs['cmd_kick'].encode('utf8').format(
-                            channel=channel,
-                            user=user.split('!', 1)[0],
-                            reason=cs['kick_reason'].encode('utf8')
-                            ))
+            record = kicklist.find_one({"hostmask": user.split('!', 1)[1]})
+            log.msg("%r" % record)
+
+            if cs['kicker'] and record["warns"] >= cs['ttk']:
+                self.msg(cs['chanserv'].encode('utf8'),
+                    cs['cmd_kick'].encode('utf8').format(
+                        channel=channel,
+                        user=user.split('!', 1)[0],
+                        reason=cs['kick_reason'].encode('utf8')
+                        ))
+                record['warns'] = 0
+                record['kicks'] += 1
+            elif cs['ban'] and record["kicks"] >= cs['ttb']:
+                self.msg(cs['chanserv'].encode('utf8'),
+                    cs['cmd_atb'].encode('utf8').format(
+                        channel=channel,
+                        user=user.split('!', 1)[0],
+                        bantime=cs['bantime'],
+                        reason=cs['ban_reason'].encode('utf8').format(
+                            bantime=cs['bantime'])
+                        ))
+                record['kicks'] = 0
+                record['warns'] = 0
             else:
                 if cs['private']:
                     self.notice(user.split('!', 1)[0], "Watch your language!")
                 else:
                     self.msg(channel, "Watch your language %s!"
                         % user.split('!', 1)[0])
+
+                record['warns'] += 1
+
+            kicklist.save(record)
 
     def privmsg(self, user, channel, msg):
         """This will get called when the bot receives a message."""
@@ -182,6 +190,7 @@ class Bot(irc.IRCClient):
                 cs = {
                     "channel": channel,
                     "ttb": 3,
+                    "ttk": 3,
                     "kicker": False,
                     "ban": False,
                     "private": True,
@@ -427,7 +436,7 @@ class Bot(irc.IRCClient):
         else:
             self.notice(user.split('!', 1)[0], "User not registered!")
 
-    @has_permission("op", 1)
+    @has_permission("admin", 1)
     def cmd_set(self, user, src_chan, option, channel=None, *value):
         """Set an option for a channel. @set <option> <channel> <value>"""
 
@@ -459,9 +468,9 @@ class Bot(irc.IRCClient):
                     return
 
                 coll.save(cs)
-            elif option in ("ttb", "bantime"):
+            elif option in ("ttb", "bantime", "ttk"):
                 try:
-                    cs[option] = int(*value)
+                    cs[option] = int(value[0])
                 except TypeError:
                     self.notice(user.split('!', 1)[0],
                         "Invalid argument! Must be an integer.")
@@ -480,3 +489,10 @@ class Bot(irc.IRCClient):
         else:
             self.notice(user.split('!', 1)[0],
                 "Channel does not exist in my records.")
+
+    @has_permission("owner")
+    def cmd_nick(self, user, src_chan, nick=None):
+        """Change nick of the bot. @nick <nick>"""
+
+        if nick:
+            self.setNick(nick)
