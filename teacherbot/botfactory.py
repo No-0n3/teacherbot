@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from twisted.internet import protocol, reactor, error
+from twisted.internet import protocol, reactor
 from twisted.python import log
 from pymongo import MongoClient
 import pymongo
@@ -29,7 +29,13 @@ class BotFactory(protocol.ReconnectingClientFactory):
         self.ns_user = config['nickserv']['username'].encode('utf8')
         self.ns_pw = config['nickserv']['password'].encode('utf8')
         self.stop = False
-        self.dbclient = MongoClient(config["database"])
+        self.dbclient = None
+        self.db = None
+        self.config = config
+
+    def startFactory(self):
+        """Called when starting factory"""
+        self.dbclient = MongoClient(self.config["database"])
         self.db = self.dbclient.chat_bot
         self.db.chat_bot.users.ensure_index("username", unique=True)
         self.db.chat_bot.users.ensure_index(
@@ -40,25 +46,22 @@ class BotFactory(protocol.ReconnectingClientFactory):
         self.db.chat_bot.kicklist.ensure_index("hostmask", unique=True)
         self.db.chat_bot.chan_settings.ensure_index("channel", unique=True)
 
+        protocol.ReconnectingClientFactory.startFactory(self)
+
+    def stopFactory(self):
+        """Called when stopping factory"""
+        self.dbclient.disconnect()
+        protocol.ReconnectingClientFactory.stopFactory(self)
+        reactor.stop()
+
     def clientConnectionLost(self, connector, reason):
         """If we get disconnected, reconnect to server."""
 
-        r = reason.trap(error.ConnectionDone)
+        log.err(reason)
 
-        if r == error.ConnectionDone:
-            if self.stop:
-                self.dbclient.disconnect()
-                reactor.stop()
-            else:
-                protocol.ReconnectingClientFactory.clientConnectionLost(self,
-                connector, reason)
-        else:
-            protocol.ReconnectingClientFactory.clientConnectionLost(self,
-                connector, reason)
-            log.err(reason)
+        protocol.ReconnectingClientFactory.clientConnectionLost(self,
+            connector, reason)
 
     def clientConnectionFailed(self, connector, reason):
         """Is run if the connection fails."""
-        self.dbclient.disconnect()
         log.err(reason)
-        reactor.stop()

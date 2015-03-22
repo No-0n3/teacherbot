@@ -49,7 +49,8 @@ class BotService(service.Service):
     def stopService(self):
         """Stop service"""
         if self._bot and self._bot.transport.connected:
-            self._bot.quit(message="Shutting down")
+            self._bot.transport.loseConnection()
+            self._bot.dbclient.disconnect()
 
 
 class BotServiceMaker(object):

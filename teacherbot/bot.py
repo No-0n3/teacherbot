@@ -128,10 +128,11 @@ class Bot(irc.IRCClient):
                 record['warns'] = 0
             else:
                 if cs['private']:
-                    self.notice(user.split('!', 1)[0], "Watch your language!")
+                    self.notice(user.split('!', 1)[0],
+                        cs['warning'].encode('utf8'))
                 else:
-                    self.msg(channel, "Watch your language %s!"
-                        % user.split('!', 1)[0])
+                    self.msg(channel, cs['warning'].encode('utf8').format(
+                        user=user.split('!', 1)[0]))
 
                 record['warns'] += 1
 
@@ -199,14 +200,15 @@ class Bot(irc.IRCClient):
                     "cmd_kick": "",
                     "chanserv": "ChanServ",
                     "kick_reason": "Watch you language!",
-                    "ban_reason": "Watch your language!"
+                    "ban_reason": "Watch your language!",
+                    "warning": "Watch your language!"
                     }
 
                 coll.save(cs)
 
             self.join(channel, password)
 
-    @has_permission("op", 0)
+    @has_permission("admin", 0)
     def cmd_part(self, user, src_chan, channel, password=None):
         """Leave a channel. @part <channel>"""
         if channel:
@@ -216,7 +218,6 @@ class Bot(irc.IRCClient):
     def cmd_quit(self, user, src_chan, *args):
         """Shutdown the bot."""
         self.quit(message="Shutting down.")
-        self.factory.stop = True
 
     @has_permission("admin")
     def cmd_msg(self, user, src_chan, dest, *message):
@@ -323,7 +324,7 @@ class Bot(irc.IRCClient):
         else:
             self.notice(user.split('!', 1)[0], "User not registered!")
 
-    @has_permission("admin", 1)
+    @has_permission("owner", 1)
     def cmd_admin(self, user, src_chan, username, channel):
         """Escalate privileges to admin level for a user. @admin <username>"""
         coll = self.factory.db.users
@@ -341,7 +342,7 @@ class Bot(irc.IRCClient):
         else:
             self.notice(user.split('!', 1)[0], "User not registered!")
 
-    @has_permission("admin", 1)
+    @has_permission("owner", 1)
     def cmd_deadmin(self, user, src_chan, username, channel):
         """Remove admin privilege from a user. @deadmin <username> <channel>"""
         coll = self.factory.db.users
@@ -481,7 +482,7 @@ class Bot(irc.IRCClient):
                         "Channel cannot be changed!")
                 return
             elif option in ("cmd_atb", "cmd_kick", "ban_reason",
-                "kick_reason", "chanserv"):
+                "kick_reason", "chanserv", "warning"):
                 cs[option] = ' '.join(value)
                 coll.save(cs)
             else:
