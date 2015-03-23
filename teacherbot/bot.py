@@ -106,7 +106,6 @@ class Bot(irc.IRCClient):
                 kicklist.save(record)
 
             record = kicklist.find_one({"hostmask": user.split('!', 1)[1]})
-            log.msg("%r" % record)
 
             if cs['kicker'] and record["warns"] >= cs['ttk']:
                 self.msg(cs['chanserv'].encode('utf8'),
