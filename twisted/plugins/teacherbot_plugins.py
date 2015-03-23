@@ -50,7 +50,7 @@ class BotService(service.Service):
         """Stop service"""
         if self._bot and self._bot.transport.connected:
             self._bot.transport.loseConnection()
-            self._bot.dbclient.disconnect()
+            self._bot.factory.dbclient.disconnect()
 
 
 class BotServiceMaker(object):

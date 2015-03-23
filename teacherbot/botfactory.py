@@ -26,9 +26,6 @@ class BotFactory(protocol.ReconnectingClientFactory):
         self.realname = config['network'].get('realname',
             config["identity"]["nickname"]).encode('utf8')
         self.linerate = config['general']['linerate']
-        self.ns_user = config['nickserv']['username'].encode('utf8')
-        self.ns_pw = config['nickserv']['password'].encode('utf8')
-        self.stop = False
         self.dbclient = None
         self.db = None
         self.config = config
@@ -52,12 +49,12 @@ class BotFactory(protocol.ReconnectingClientFactory):
         """Called when stopping factory"""
         self.dbclient.disconnect()
         protocol.ReconnectingClientFactory.stopFactory(self)
-        reactor.stop()
+
+        if reactor.running:
+            reactor.stop()
 
     def clientConnectionLost(self, connector, reason):
         """If we get disconnected, reconnect to server."""
-
-        log.err(reason)
 
         protocol.ReconnectingClientFactory.clientConnectionLost(self,
             connector, reason)
@@ -65,3 +62,6 @@ class BotFactory(protocol.ReconnectingClientFactory):
     def clientConnectionFailed(self, connector, reason):
         """Is run if the connection fails."""
         log.err(reason)
+
+        protocol.ReconnectingClientFactory.clientConnectionLost(self,
+            connector, reason)
