@@ -366,7 +366,7 @@ class Bot(irc.IRCClient):
 
     @has_permission("owner")
     def cmd_owner(self, user, src_chan, username):
-        """Remove admin privilege from a user. @deadmin <username>"""
+        """Give owner privilege to a user. @owner <username>"""
         coll = self.factory.db.users
 
         user_doc = coll.find_one({"username": username})
