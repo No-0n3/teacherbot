@@ -58,7 +58,7 @@ class Bot(irc.IRCClient):
         self.password = self.factory.password
         self.username = self.factory.username
         self.realname = self.factory.realname
-        self.linerate = self.factory.linerate
+        self.lineRate = self.factory.linerate
 
         irc.IRCClient.connectionMade(self)
 
@@ -98,25 +98,19 @@ class Bot(irc.IRCClient):
 
             if record is None:
                 record = {
+                    "nickname": user.split('!', 1)[0],
                     "hostmask": user.split('!', 1)[1],
                     "warns": 0,
                     "kicks": 0,
+                    "channel": channel
                     }
 
                 kicklist.save(record)
 
             record = kicklist.find_one({"hostmask": user.split('!', 1)[1]})
 
-            if cs['kicker'] and record["warns"] >= cs['ttk']:
-                self.msg(cs['chanserv'].encode('utf8'),
-                    cs['cmd_kick'].encode('utf8').format(
-                        channel=channel,
-                        user=user.split('!', 1)[0],
-                        reason=cs['kick_reason'].encode('utf8')
-                        ))
-                record['warns'] = 0
-                record['kicks'] += 1
-            elif cs['ban'] and record["kicks"] >= cs['ttb']:
+            if cs['ban'] and record["kicks"] >= cs['ttb'] and \
+                record["warns"] >= cs['ttk']:
                 self.msg(cs['chanserv'].encode('utf8'),
                     cs['cmd_atb'].encode('utf8').format(
                         channel=channel,
@@ -127,6 +121,15 @@ class Bot(irc.IRCClient):
                         ))
                 record['kicks'] = 0
                 record['warns'] = 0
+            elif cs['kicker'] and record["warns"] >= cs['ttk']:
+                self.msg(cs['chanserv'].encode('utf8'),
+                    cs['cmd_kick'].encode('utf8').format(
+                        channel=channel,
+                        user=user.split('!', 1)[0],
+                        reason=cs['kick_reason'].encode('utf8')
+                        ))
+                record['warns'] = 0
+                record['kicks'] += 1
             else:
                 if cs['private']:
                     self.notice(user.split('!', 1)[0],
@@ -181,7 +184,7 @@ class Bot(irc.IRCClient):
             log.msg("User {} changed nick to {}".format(oldname, newname))
 
     # User-defined commands
-    @has_permission("op", 0)
+    @has_permission("admin", 0)
     def cmd_join(self, user, src_chan, channel, password=None):
         """Join a channel. @join <channel> [<password>]"""
         if channel:
@@ -200,7 +203,7 @@ class Bot(irc.IRCClient):
                     "cmd_atb": "",
                     "cmd_kick": "",
                     "chanserv": "ChanServ",
-                    "kick_reason": "Watch you language!",
+                    "kick_reason": "Watch your language!",
                     "ban_reason": "Watch your language!",
                     "warning": "Watch your language!"
                     }
@@ -498,3 +501,19 @@ class Bot(irc.IRCClient):
 
         if nick:
             self.setNick(nick)
+
+    @has_permission("user")
+    def cmd_help(self, user, src_chan, cmd=None):
+        """Shows info about a command or lists commands. @help [<command>]"""
+
+        if cmd is None:
+            self.notice(user.split('!', 1)[0], "Commands:")
+
+            for func in dir(self):
+                if func.startswith("cmd_"):
+                    self.notice(user.split('!', 1)[0], "@" + func[4:] + " - " +
+                        getattr(self, func).__doc__)
+        else:
+            func = getattr(self, "cmd_" + cmd)
+            self.notice(user.split('!', 1)[0], "@" + func.__name__[4:] +
+                 " - " + func.__doc__)
