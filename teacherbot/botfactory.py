@@ -32,8 +32,8 @@ class BotFactory(protocol.ReconnectingClientFactory):
 
     def startFactory(self):
         """Called when starting factory"""
-        self.dbclient = MongoClient(self.config["database"])
-        self.db = self.dbclient.chat_bot
+        self.dbclient = MongoClient(self.config["database"]["uri"])
+        self.db = self.dbclient[self.config["database"]["database"]]
         self.db.users.ensure_index("username", unique=True)
         self.db.users.ensure_index(
             [("hostmask", pymongo.ASCENDING),

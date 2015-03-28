@@ -40,7 +40,7 @@ class BotService(service.Service):
             log.err(err, _why='Could not connect to specified server.')
             reactor.stop()
 
-        client = TCP4ClientEndpoint(reactor, self.config['network']["server"],
+        client = TCP4ClientEndpoint(reactor, self.config['network']["host"],
             self.config['network']["port"])
         factory = BotFactory(self.config)
 

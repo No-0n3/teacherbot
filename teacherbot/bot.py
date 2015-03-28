@@ -71,7 +71,6 @@ class Bot(irc.IRCClient):
     def signedOn(self):
         """Called when bot has succesfully signed on to server."""
         self.engine = Badwords(self.factory.db)
-        self.back()
 
     def kickedFrom(self, channel, kicker, message):
         """Called when I am kicked from a channel."""

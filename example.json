@@ -1,16 +1,19 @@
 {
   "network": {
     "port": 6667,
-    "password": "",
-    "server": "",
+    "password": "PASSWORD",
+    "host": "IRC_HOST"
   },
-  "database": "mongodb://example.com:27017/",
+  "database": {
+      "uri": "mongodb://EXAMPLE.COM:27017/",
+      "database": "teacherbot"
+  },
   "identity": {
-    "realname": "",
-    "nickname": "",
-    "username": ""
+    "realname": "TeacherBot",
+    "nickname": "TeacherBot",
+    "username": "TeacherBot"
   },
   "general": {
-    "linerate": 2
+    "linerate": 1
   }
 }
