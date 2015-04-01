@@ -156,10 +156,16 @@ class Bot(irc.IRCClient):
             else:
                 self.notice(user.split('!', 1)[0], "Unknown command!")
         else:
-            if channel.startswith("#"):
-                # Run defer in thread so it doesn't block if many results in db.
-                d = threads.deferToThread(self.engine.check, channel, msg)
-                d.addCallback(self.badword, user, channel)
+            if channel != self.nickname:
+                coll = self.factory.db.ignore
+
+                hostmask = coll.find_one({"hostmask": user.split('!', 1)[1]})
+
+                if hostmask is None:
+                    # Run defer in thread so it doesn't block if many results
+                    # in db.
+                    d = threads.deferToThread(self.engine.check, channel, msg)
+                    d.addCallback(self.badword, user, channel)
 
     def userQuit(self, user, quitMessage):
         """Called when a user leaves the network"""
@@ -516,3 +522,19 @@ class Bot(irc.IRCClient):
             func = getattr(self, "cmd_" + cmd)
             self.notice(user.split('!', 1)[0], "@" + func.__name__[4:] +
                  " - " + func.__doc__)
+
+    @has_permission("admin")
+    def cmd_ignore(self, user, src_chan, hostmask):
+        """Put a user in exception. @ignore <hostmask>"""
+
+        coll = self.factory.db.ignore
+        ignore_user = {"hostmask": hostmask}
+
+        try:
+            coll.insert(ignore_user)
+        except DuplicateKeyError:
+            self.notice(user.split('!', 1)[0],
+                "Already in list.")
+        else:
+            self.notice(user.split('!', 1)[0],
+                "Added to list.")

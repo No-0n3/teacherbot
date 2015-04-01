@@ -42,6 +42,7 @@ class BotFactory(protocol.ReconnectingClientFactory):
             ("nick", pymongo.ASCENDING)])
         self.db.kicklist.ensure_index("hostmask", unique=True)
         self.db.chan_settings.ensure_index("channel", unique=True)
+        self.db.ignore.ensure_index("hostmask", unique=True)
 
         protocol.ReconnectingClientFactory.startFactory(self)
 
